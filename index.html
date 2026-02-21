@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <title>StrengthLog (Single File)</title>
+  <style>
+    :root { --bg:#0b0b0c; --card:#141416; --muted:#a6a6ad; --text:#f3f3f5; --line:#26262a; --accent:#ffffff; --danger:#ff4d4d; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--text); }
+    header { position:sticky; top:0; background:rgba(11,11,12,0.92); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); padding:14px 16px; z-index:10; }
+    header h1 { margin:0; font-size:16px; letter-spacing:0.2px; }
+    main { padding:16px; padding-bottom:90px; max-width:900px; margin:0 auto; }
+    .tabs { position:fixed; bottom:0; left:0; right:0; background:rgba(11,11,12,0.92); backdrop-filter: blur(10px); border-top:1px solid var(--line); display:flex; gap:8px; padding:10px; }
+    .tabbtn { flex:1; padding:10px 12px; border-radius:12px; border:1px solid var(--line); color:var(--text); background:transparent; font-weight:700; }
+    .tabbtn.active { background:var(--accent); color:#111; border-color:transparent; }
+    .row { display:flex; gap:10px; }
+    .row > * { flex:1; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px; margin:0 0 12px; }
+    .muted { color:var(--muted); font-size:12px; }
+    .h2 { font-size:14px; font-weight:800; margin:0 0 8px; }
+    input, select, textarea {
+      width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--line);
+      background:#0f0f11; color:var(--text); font-size:14px; outline:none;
+    }
+    textarea { min-height:70px; resize:vertical; }
+    button {
+      width:100%; padding:10px 12px; border-radius:12px; border:0;
+      background:var(--accent); color:#111; font-weight:800; cursor:pointer;
+    }
+    button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+    button.danger { background:var(--danger); color:#111; }
+    .pill { display:inline-block; padding:4px 8px; border:1px solid var(--line); border-radius:999px; font-size:12px; color:var(--muted); }
+    .list { display:flex; flex-direction:column; gap:10px; }
+    .setline { display:flex; gap:8px; align-items:center; }
+    .setline > .s { flex:1; font-size:13px; }
+    .setline > .x { width:90px; }
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .spacer { height:8px; }
+    .right { text-align:right; }
+    .small { font-size:12px; }
+    .warn { color:#ffd166; }
+    .ok { color:#8ef09a; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    a { color: var(--text); }
+  </style>
+</head>
+<body>
+  <header><h1>StrengthLog (Single File)</h1></header>
+  <main id="app"></main>
+
+  <nav class="tabs">
+    <button class="tabbtn active" data-tab="today">Today</button>
+    <button class="tabbtn" data-tab="workout">Workout</button>
+    <button class="tabbtn" data-tab="history">History</button>
+    <button class="tabbtn" data-tab="exercises">Exercises</button>
+  </nav>
+
+<script>
+(() => {
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+  const app = $("#app");
+
+  // -------- Storage --------
+  const KEY = "strengthlog.singlefile.v1";
+
+  const defaultExercises = [
+    { id:"squat_bb", name:"Back Squat (Barbell)", category:"compound", muscles:["quads","glutes","adductors","erectors"], equipment:"barbell",
+      instructions:"Brace. Controlled descent. Stable knees. Drive from midfoot.", microloadKg:2.5 },
+    { id:"bench_bb", name:"Bench Press (Barbell)", category:"compound", muscles:["pecs","triceps","front_delts"], equipment:"barbell",
+      instructions:"Scapulae retracted. Touch lower chest. Press with stable bar path.", microloadKg:1.25 },
+    { id:"deadlift_bb", name:"Deadlift (Barbell)", category:"compound", muscles:["glutes","hamstrings","erectors","lats"], equipment:"barbell",
+      instructions:"Take slack out. Brace. Push the floor. Lock out with glutes.", microloadKg:2.5 },
+    { id:"ohp_bb", name:"Overhead Press (Barbell)", category:"compound", muscles:["front_delts","triceps"], equipment:"barbell",
+      instructions:"Ribs down. Glutes tight. Press overhead, head through.", microloadKg:1.25 },
+    { id:"row_bb", name:"Bent-Over Row (Barbell)", category:"compound", muscles:["lats","mid_back","biceps","rear_delts"], equipment:"barbell",
+      instructions:"Hinge. Neutral spine. Pull to lower ribs. Control eccentric.", microloadKg:2.5 },
+    { id:"pullup_bw", name:"Pull-Up", category:"compound", muscles:["lats","biceps","mid_back"], equipment:"bodyweight",
+      instructions:"Full hang to chin over bar. Controlled reps. Add load when strong.", microloadKg:2.5 },
+    { id:"latpulldown", name:"Lat Pulldown", category:"compound", muscles:["lats","biceps"], equipment:"cable",
+      instructions:"Elbows down to ribs. Avoid excessive lean. Control eccentric.", microloadKg:2.5 },
+    { id:"legpress", name:"Leg Press", category:"compound", muscles:["quads","glutes"], equipment:"machine",
+      instructions:"Control depth. Keep pelvis stable. Drive through midfoot.", microloadKg:5.0 },
+    { id:"curl_db", name:"Biceps Curl (Dumbbell)", category:"isolation", muscles:["biceps"], equipment:"dumbbells",
+      instructions:"Elbows fixed. Full ROM. Minimal swing.", microloadKg:1.0 },
+    { id:"lat_raise_db", name:"Lateral Raise (Dumbbell)", category:"isolation", muscles:["side_delts"], equipment:"dumbbells",
+      instructions:"Raise to shoulder height. Avoid shrugging. Control tempo.", microloadKg:1.0 },
+  ];
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  }
+
+  function save(state) {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  }
+
+  function uid() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = Math.random()*16|0, v = c==="x" ? r : (r&0x3)|0x8;
+      return v.toString(16);
+    });
+  }
+
+  const state = load() ?? {
+    exercises: defaultExercises,
+    settings: {}, // exerciseId -> {repMin,repMax,targetRir,microloadKg}
+    workouts: [], // {id, startedAt, endedAt, note, items:[{id, exerciseId, sets:[]}]}
+    activeWorkoutId: null,
+  };
+
+  // init settings defaults
+  for (const ex of state.exercises) {
+    if (!state.settings[ex.id]) {
+      state.settings[ex.id] = { repMin:6, repMax:10, targetRir:2, microloadKg: ex.microloadKg ?? 2.5 };
+    }
+  }
+  save(state);
+
+  // -------- Progression (conservative) --------
+  function recommendNextLoad(lastSets, settings) {
+    const workSets = (lastSets || []).filter(s => !s.isWarmup);
+    if (!workSets.length) return { action:"keep", nextWeightKg:0, reason:"No work sets logged yet." };
+    const last = workSets[workSets.length - 1];
+    const w = Number(last.weightKg || 0);
+    const reps = Number(last.reps || 0);
+    const rir = (last.rir === null || last.rir === "" || last.rir === undefined) ? null : Number(last.rir);
+    const step = Number(settings.microloadKg || 2.5);
+
+    const roundToStep = (val) => Math.max(0, Math.round(val/step)*step);
+
+    if (reps < settings.repMin) {
+      return { action:"decrease", nextWeightKg: roundToStep(w-step), reason:`Reps (${reps}) below repMin (${settings.repMin}).` };
+    }
+    if (reps >= settings.repMax && (rir === null || rir <= settings.targetRir)) {
+      return { action:"increase", nextWeightKg: roundToStep(w+step), reason:`Top reps reached at/near target effort.` };
+    }
+    if (rir !== null && rir >= settings.targetRir + 2) {
+      return { action:"increase", nextWeightKg: roundToStep(w+step), reason:`Too easy (RIR ${rir} vs target ${settings.targetRir}).` };
+    }
+    return { action:"keep", nextWeightKg:w, reason:"Keep load; progress reps within the range." };
+  }
+
+  // -------- UI helpers --------
+  function h(tag, attrs={}, children=[]) {
+    const el = document.createElement(tag);
+    for (const [k,v] of Object.entries(attrs)) {
+      if (k === "class") el.className = v;
+      else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (v === true) el.setAttribute(k, "");
+      else if (v !== false && v != null) el.setAttribute(k, String(v));
+    }
+    for (const c of (Array.isArray(children) ? children : [children])) {
+      if (c == null) continue;
+      el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    }
+    return el;
+  }
+
+  function render(tab) {
+    app.innerHTML = "";
+    if (tab === "today") renderToday();
+    if (tab === "workout") renderWorkout();
+    if (tab === "history") renderHistory();
+    if (tab === "exercises") renderExercises();
+  }
+
+  function getActiveWorkout() {
+    if (!state.activeWorkoutId) return null;
+    return state.workouts.find(w => w.id === state.activeWorkoutId) ?? null;
+  }
+
+  function renderToday() {
+    const active = getActiveWorkout();
+    const recent = [...state.workouts].sort((a,b)=>b.startedAt.localeCompare(a.startedAt)).slice(0,5);
+
+    app.appendChild(h("div", {class:"card"}, [
+      h("div", {class:"h2"}, "Start"),
+      h("div", {class:"muted"}, "Create a new workout or resume the active one."),
+      h("div", {class:"spacer"}),
+      active
+        ? h("button", {class:"ghost", onclick:() => setTab("workout")}, `Resume active workout (${new Date(active.startedAt).toLocaleString()})`)
+        : h("button", {onclick:() => {
+            const note = prompt("Note (optional):", "") ?? "";
+            const w = { id: uid(), startedAt: new Date().toISOString(), endedAt: null, note: note.trim() || null, items: [] };
+            state.workouts.push(w);
+            state.activeWorkoutId = w.id;
+            save(state);
+            setTab("workout");
+          }}, "Start new workout"),
+    ]));
+
+    app.appendChild(h("div", {class:"card"}, [
+      h("div", {class:"h2"}, "Recent"),
+      recent.length ? h("div", {class:"list"}, recent.map(wk => {
+        return h("div", {class:"card"}, [
+          h("div", {style:"display:flex;justify-content:space-between;gap:10px;align-items:center;"}, [
+            h("div", {}, [
+              h("div", {}, new Date(wk.startedAt).toLocaleString()),
+              h("div", {class:"muted"}, wk.note ?? "—")
+            ]),
+            h("button", {class:"ghost", onclick:() => { state.activeWorkoutId = wk.id; save(state); setTab("workout"); }}, "Open")
+          ])
+        ]);
+      })) : h("div", {class:"muted"}, "No workouts yet.")
+    ]));
+  }
+
+  function renderWorkout() {
+    const wk = getActiveWorkout();
+    if (!wk) {
+      app.appendChild(h("div", {class:"card"}, [
+        h("div", {class:"h2"}, "No active workout"),
+        h("div", {class:"muted"}, "Go to Today and start one.")
+      ]));
+      return;
+    }
+
+    app.appendChild(h("div", {class:"card"}, [
+      h("div", {class:"h2"}, "Active Workout"),
+      h("div", {}, new Date(wk.startedAt).toLocaleString()),
+      h("div", {class:"muted"}, wk.note ?? "—"),
+      h("div", {class:"spacer"}),
+      h("div", {class:"row"}, [
+        h("button", {class:"ghost", onclick:() => {
+          const newNote = prompt("Edit note:", wk.note ?? "") ?? (wk.note ?? "");
+          wk.note = newNote.trim() || null;
+          save(state); render("workout");
+        }}, "Edit note"),
+        h("button", {onclick:() => {
+          wk.endedAt = new Date().toISOString();
+          state.activeWorkoutId = null;
+          save(state);
+          setTab("history");
+        }}, "Finish"),
+      ])
+    ]));
+
+    // Add exercise
+    const addCard = h("div", {class:"card"}, [
+      h("div", {class:"h2"}, "Add exercise"),
+      h("input", {id:"exSearch", placeholder:"Search (e.g., squat, cable, dumbbell)"}),
+      h("div", {class:"spacer"}),
+      h("div", {id:"exResults", class:"list"})
+    ]);
+    app.appendChild(addCard);
+
+    function renderResults() {
+      const q = ($("#exSearch").value || "").trim().toLowerCase();
+      const res = q
+        ? state.exercises.filter(ex =>
+            ex.name.toLowerCase().includes(q) ||
+            ex.equipment.toLowerCase().includes(q) ||
+            ex.muscles.join(" ").toLowerCase().includes(q)
+          )
+        : state.exercises;
+      const top = res.slice(0, 20);
+
+      const box = $("#exResults");
+      box.innerHTML = "";
+      top.forEach(ex => {
+        box.appendChild(h("div", {class:"card"}, [
+          h("div", {style:"display:flex;justify-content:space-between;gap:10px;align-items:center;"}, [
+            h("div", {}, [
+              h("div", {}, ex.name),
+              h("div", {class:"muted"}, `${ex.equipment} • ${ex.category}`),
+              h("div", {class:"muted"}, ex.muscles.join(", "))
+            ]),
+            h("button", {onclick:() => {
+              wk.items.push({ id: uid(), exerciseId: ex.id, sets: [] });
+              save(state); render("workout");
+            }}, "Add")
+          ])
+        ]));
+      });
+    }
+    $("#exSearch").addEventListener("input", renderResults);
+    renderResults();
+
+    // Workout items
+    if (!wk.items.length) {
+      app.appendChild(h("div", {class:"muted"}, "Add at least one exercise to start logging sets."));
+      return;
+    }
+
+    wk.items.forEach(item => {
+      const ex = state.exercises.find(e => e.id === item.exerciseId);
+      if (!ex) return;
+      const s = state.settings[ex.id] ?? {repMin:6, repMax:10, targetRir:2, microloadKg:2.5};
+
+      const lastWorkSet = item.sets.filter(x => !x.isWarmup).slice(-1)[0] || null;
+      const rec = lastWorkSet ? recommendNextLoad(item.sets, s) : null;
+
+      const card = h("div", {class:"card"}, [
+        h("div", {style:"display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"}, [
+          h("div", {}, [
+            h("div", {class:"h2"}, ex.name),
+            h("div", {class:"muted"}, `${ex.equipment} • rep range ${s.repMin}-${s.repMax} • target RIR ${s.targetRir} • step ${s.microloadKg}kg`),
+            rec ? h("div", {class:"muted"}, `Recommendation: ${rec.action.toUpperCase()} → ~${rec.nextWeightKg} kg (${rec.reason})`) : h("div", {class:"muted"}, "No recommendation yet (log at least one work set).")
+          ]),
+          h("button", {class:"ghost", onclick:() => openExerciseModal(ex.id)}, "Settings")
+        ]),
+
+        h("div", {class:"spacer"}),
+
+        // Inputs
+        h("div", {class:"grid2"}, [
+          h("div", {}, [ h("div",{class:"muted"},"kg"), h("input",{id:`w_${item.id}`, placeholder:"e.g., 80", inputmode:"decimal"}) ]),
+          h("div", {}, [ h("div",{class:"muted"},"reps"), h("input",{id:`r_${item.id}`, placeholder:"e.g., 8", inputmode:"numeric"}) ]),
+          h("div", {}, [ h("div",{class:"muted"},"RIR 0–5 (optional)"), h("input",{id:`rir_${item.id}`, placeholder:"e.g., 2", inputmode:"numeric"}) ]),
+          h("div", {}, [ h("div",{class:"muted"},"rest sec (optional)"), h("input",{id:`rest_${item.id}`, placeholder:"e.g., 120", inputmode:"numeric"}) ]),
+        ]),
+        h("div", {class:"spacer"}),
+        h("div", {class:"row"}, [
+          h("button", {class:"ghost", onclick:() => addSet(item.id, true)}, "Add warmup set"),
+          h("button", {onclick:() => addSet(item.id, false)}, "Add work set"),
+        ]),
+        h("div", {class:"spacer"}),
+        renderSetsList(item),
+      ]);
+
+      // prefill last weight convenience
+      if (lastWorkSet) setTimeout(() => {
+        const wEl = $(`#w_${item.id}`); if (wEl && !wEl.value) wEl.value = String(lastWorkSet.weightKg ?? "");
+      }, 0);
+
+      app.appendChild(card);
+
+      function addSet(itemId, isWarmup) {
+        const it = wk.items.find(x => x.id === itemId);
+        if (!it) return;
+        const wv = $(`#w_${itemId}`).value.trim().replace(",", ".");
+        const rv = $(`#r_${itemId}`).value.trim();
+        const rirv = $(`#rir_${itemId}`).value.trim();
+        const restv = $(`#rest_${itemId}`).value.trim();
+
+        const weightKg = Number(wv);
+        const reps = Number(rv);
+
+        if (!Number.isFinite(weightKg) || !Number.isFinite(reps) || reps <= 0) {
+          alert("Enter valid weight (kg) and reps.");
+          return;
+        }
+        let rir = null;
+        if (rirv !== "") {
+          const x = Number(rirv);
+          if (!Number.isFinite(x)) { alert("RIR must be a number 0–5."); return; }
+          rir = Math.max(0, Math.min(5, Math.round(x)));
+        }
+        let restSec = null;
+        if (restv !== "") {
+          const x = Number(restv);
+          if (!Number.isFinite(x) || x < 0) { alert("Rest must be >= 0."); return; }
+          restSec = Math.round(x);
+        }
+
+        it.sets.push({
+          id: uid(),
+          ts: new Date().toISOString(),
+          isWarmup: !!isWarmup,
+          weightKg: Number(weightKg.toFixed(2)),
+          reps: Math.round(reps),
+          rir,
+          restSec
+        });
+        save(state);
+        render("workout");
+      }
+    });
+  }
+
+  function renderSetsList(item) {
+    const sets = item.sets || [];
+    if (!sets.length) return h("div", {class:"muted"}, "No sets yet.");
+
+    const box = h("div", {class:"list"}, sets.map((s, idx) => {
+      const label = `#${idx+1} ${s.isWarmup ? "WARMUP" : "WORK"} • ${s.weightKg} kg × ${s.reps} • RIR ${s.rir ?? "—"} • rest ${s.restSec ?? "—"}`;
+      return h("div", {class:"setline"}, [
+        h("div", {class:"s"}, label),
+        h("button", {class:"danger x", onclick:() => {
+          const wk = getActiveWorkout(); if (!wk) return;
+          const it = wk.items.find(x => x.id === item.id); if (!it) return;
+          it.sets = it.sets.filter(x => x.id !== s.id);
+          save(state); render("workout");
+        }}, "Del")
+      ]);
+    }));
+    return box;
+  }
+
+  function renderHistory() {
+    const items = [...state.workouts].sort((a,b)=>b.startedAt.localeCompare(a.startedAt));
+    app.appendChild(h("div",{class:"card"},[
+      h("div",{class:"h2"},"History"),
+      h("div",{class:"muted"},"Tap a workout to view summary. (You can reopen it as active.)"),
+      h("div",{class:"spacer"}),
+      items.length ? h("div",{class:"list"}, items.map(wk => {
+        const exCount = wk.items?.length ?? 0;
+        const setCount = (wk.items||[]).reduce((acc,it)=>acc + (it.sets?.length||0), 0);
+        return h("div",{class:"card"},[
+          h("div",{style:"display:flex;justify-content:space-between;gap:10px;align-items:center;"},[
+            h("div",{},[
+              h("div",{}, new Date(wk.startedAt).toLocaleString()),
+              h("div",{class:"muted"}, `${wk.note ?? "—"} • ${exCount} exercises • ${setCount} sets`),
+              wk.endedAt ? h("div",{class:"muted"}, `Finished: ${new Date(wk.endedAt).toLocaleString()}`) : h("div",{class:"muted warn"}, "Not finished (was active earlier).")
+            ]),
+            h("button",{class:"ghost", onclick:() => openHistoryModal(wk.id)}, "View")
+          ])
+        ]);
+      })) : h("div",{class:"muted"},"No workouts yet.")
+    ]));
+
+    app.appendChild(h("div",{class:"card"},[
+      h("div",{class:"h2"},"Data"),
+      h("div",{class:"muted"},"Export/Reset"),
+      h("div",{class:"spacer"}),
+      h("button",{class:"ghost", onclick:exportData},"Export JSON"),
+      h("div",{class:"spacer"}),
+      h("button",{class:"danger", onclick:resetAll},"RESET ALL DATA")
+    ]));
+  }
+
+  function renderExercises() {
+    const wrap = h("div",{class:"card"},[
+      h("div",{class:"h2"},"Exercises"),
+      h("div",{class:"muted"},"Edit/add your own exercises. Settings per exercise are stored locally."),
+      h("div",{class:"spacer"}),
+      h("input",{id:"exQ", placeholder:"Search"})
+    ]);
+    const list = h("div",{class:"list", id:"exList"});
+    app.appendChild(wrap);
+    app.appendChild(list);
+
+    const btns = h("div",{class:"card"},[
+      h("div",{class:"h2"},"Add custom exercise"),
+      h("button",{onclick:addCustomExercise},"Add")
+    ]);
+    app.appendChild(btns);
+
+    function draw() {
+      const q = ($("#exQ").value||"").trim().toLowerCase();
+      const xs = q ? state.exercises.filter(ex =>
+        ex.name.toLowerCase().includes(q) ||
+        ex.equipment.toLowerCase().includes(q) ||
+        ex.muscles.join(" ").toLowerCase().includes(q)
+      ) : state.exercises;
+      list.innerHTML = "";
+      xs.sort((a,b)=>a.name.localeCompare(b.name)).forEach(ex => {
+        const s = state.settings[ex.id] ?? {repMin:6,repMax:10,targetRir:2,microloadKg:2.5};
+        list.appendChild(h("div",{class:"card"},[
+          h("div",{style:"display:flex;justify-content:space-between;gap:10px;align-items:center;"},[
+            h("div",{},[
+              h("div",{}, ex.name),
+              h("div",{class:"muted"}, `${ex.equipment} • ${ex.category} • ${ex.muscles.join(", ")}`),
+              h("div",{class:"muted"}, `Rep ${s.repMin}-${s.repMax} • RIR ${s.targetRir} • step ${s.microloadKg}kg`)
+            ]),
+            h("button",{class:"ghost", onclick:() => openExerciseModal(ex.id)}, "Edit")
+          ]),
+          h("button",{class:"danger", onclick:() => deleteExercise(ex.id)}, "Delete exercise")
+        ]));
+      });
+    }
+    $("#exQ").addEventListener("input", draw);
+    draw();
+  }
+
+  // -------- Modals (simple prompt-based + native confirm) --------
+  function openExerciseModal(exId) {
+    const ex = state.exercises.find(e => e.id === exId);
+    if (!ex) return;
+    const s = state.settings[exId] ?? {repMin:6,repMax:10,targetRir:2,microloadKg: ex.microloadKg ?? 2.5};
+
+    const name = prompt("Exercise name:", ex.name); if (name === null) return;
+    const equipment = prompt("Equipment:", ex.equipment); if (equipment === null) return;
+    const muscles = prompt("Muscles (comma separated):", ex.muscles.join(", ")); if (muscles === null) return;
+    const category = prompt("Category (compound/isolation/carry/cardio):", ex.category); if (category === null) return;
+    const instructions = prompt("Instructions (short cues):", ex.instructions); if (instructions === null) return;
+
+    const repMin = Number(prompt("repMin:", s.repMin));
+    const repMax = Number(prompt("repMax:", s.repMax));
+    const targetRir = Number(prompt("targetRir (0-5):", s.targetRir));
+    const microloadKg = Number(prompt("microloadKg:", s.microloadKg));
+
+    ex.name = String(name).trim() || ex.name;
+    ex.equipment = String(equipment).trim() || ex.equipment;
+    ex.muscles = String(muscles).split(",").map(x=>x.trim()).filter(Boolean);
+    ex.category = ["compound","isolation","carry","cardio"].includes(String(category).trim()) ? String(category).trim() : ex.category;
+    ex.instructions = String(instructions).trim() || ex.instructions;
+
+    state.settings[exId] = {
+      repMin: Number.isFinite(repMin) && repMin > 0 ? Math.round(repMin) : s.repMin,
+      repMax: Number.isFinite(repMax) && repMax > 0 ? Math.round(repMax) : s.repMax,
+      targetRir: Number.isFinite(targetRir) ? Math.max(0, Math.min(5, Math.round(targetRir))) : s.targetRir,
+      microloadKg: Number.isFinite(microloadKg) && microloadKg > 0 ? Number(microloadKg) : s.microloadKg,
+    };
+
+    save(state);
+    render(currentTab);
+  }
+
+  function openHistoryModal(wkId) {
+    const wk = state.workouts.find(w => w.id === wkId);
+    if (!wk) return;
+    const lines = [];
+    lines.push(`Started: ${new Date(wk.startedAt).toLocaleString()}`);
+    lines.push(`Note: ${wk.note ?? "—"}`);
+    lines.push(`Finished: ${wk.endedAt ? new Date(wk.endedAt).toLocaleString() : "—"}`);
+    lines.push("");
+    (wk.items||[]).forEach(it => {
+      const ex = state.exercises.find(e => e.id === it.exerciseId);
+      lines.push(`== ${ex ? ex.name : it.exerciseId} ==`);
+      (it.sets||[]).forEach((s, i) => {
+        lines.push(`#${i+1} ${s.isWarmup ? "WARMUP" : "WORK"}  ${s.weightKg}kg x ${s.reps}  RIR ${s.rir ?? "—"}  rest ${s.restSec ?? "—"}`);
+      });
+      lines.push("");
+    });
+    alert(lines.join("\n"));
+
+    const reopen = confirm("Reopen this workout as active?");
+    if (reopen) {
+      state.activeWorkoutId = wk.id;
+      save(state);
+      setTab("workout");
+    }
+  }
+
+  function addCustomExercise() {
+    const name = prompt("Name:", ""); if (name === null) return;
+    const equipment = prompt("Equipment:", ""); if (equipment === null) return;
+    const muscles = prompt("Muscles (comma separated):", ""); if (muscles === null) return;
+    const category = prompt("Category (compound/isolation/carry/cardio):", "compound"); if (category === null) return;
+    const instructions = prompt("Instructions:", ""); if (instructions === null) return;
+    const micro = Number(prompt("Microload (kg):", "2.5"));
+
+    const id = uid();
+    state.exercises.push({
+      id,
+      name: String(name).trim() || "Unnamed",
+      equipment: String(equipment).trim() || "unknown",
+      muscles: String(muscles).split(",").map(x=>x.trim()).filter(Boolean),
+      category: ["compound","isolation","carry","cardio"].includes(String(category).trim()) ? String(category).trim() : "compound",
+      instructions: String(instructions).trim() || "",
+      microloadKg: Number.isFinite(micro) && micro>0 ? micro : 2.5
+    });
+    state.settings[id] = { repMin: 6, repMax: 10, targetRir: 2, microloadKg: Number.isFinite(micro) && micro>0 ? micro : 2.5 };
+    save(state);
+    render(currentTab);
+  }
+
+  function deleteExercise(exId) {
+    const ok = confirm("Delete exercise? This will not delete past workout logs but may show as missing exercise names.");
+    if (!ok) return;
+    state.exercises = state.exercises.filter(e => e.id !== exId);
+    delete state.settings[exId];
+    save(state);
+    render(currentTab);
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "strengthlog-export.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  }
+
+  function resetAll() {
+    const ok = confirm("Really reset ALL local data?");
+    if (!ok) return;
+    localStorage.removeItem(KEY);
+    location.reload();
+  }
+
+  // -------- Tabs --------
+  let currentTab = "today";
+  function setTab(tab) {
+    currentTab = tab;
+    $$(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    render(tab);
+  }
+  $$(".tabbtn").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+  // initial render
+  render(currentTab);
+})();
+</script>
+</body>
+</html>
